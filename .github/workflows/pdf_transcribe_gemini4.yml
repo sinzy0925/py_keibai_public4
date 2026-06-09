@@ -71,12 +71,12 @@ jobs:
         working-directory: app
         run: |
           set -euo pipefail
-          echo "Run: python pdf_transcribe_gemini.py --block 04_hokuriku --api-key 19-24 --pdf-source drive --limit 100 --gemini-wait 4 --pages-per-call 4"
+          echo "Run: python pdf_transcribe_gemini.py --block 04_hokuriku --api-key 19-24 --pdf-source drive --limit 500 --gemini-wait 4 --pages-per-call 4"
           python pdf_transcribe_gemini.py \
             --block 04_hokuriku \
             --api-key 19-24 \
             --pdf-source drive \
-            --limit 100 \
+            --limit 500 \
             --gemini-wait 4 \
             --pages-per-call 4
 
@@ -182,12 +182,12 @@ jobs:
         working-directory: app
         run: |
           set -euo pipefail
-          echo "Run: python pdf_transcribe_gemini.py --block 08_shikoku --api-key 19-24 --pdf-source drive --limit 100 --gemini-wait 4 --pages-per-call 4"
+          echo "Run: python pdf_transcribe_gemini.py --block 08_shikoku --api-key 19-24 --pdf-source drive --limit 500 --gemini-wait 4 --pages-per-call 4"
           python pdf_transcribe_gemini.py \
             --block 08_shikoku \
             --api-key 19-24 \
             --pdf-source drive \
-            --limit 100 \
+            --limit 500 \
             --gemini-wait 4 \
             --pages-per-call 4
 
@@ -293,12 +293,12 @@ jobs:
         working-directory: app
         run: |
           set -euo pipefail
-          echo "Run: python pdf_transcribe_gemini.py --block 04_hokuriku --api-key 19-24 --pdf-source drive --limit 100 --gemini-wait 4 --pages-per-call 4 --err-retry"
+          echo "Run: python pdf_transcribe_gemini.py --block 04_hokuriku --api-key 19-24 --pdf-source drive --limit 500 --gemini-wait 4 --pages-per-call 4 --err-retry"
           python pdf_transcribe_gemini.py \
             --block 04_hokuriku \
             --api-key 19-24 \
             --pdf-source drive \
-            --limit 100 \
+            --limit 500 \
             --gemini-wait 4 \
             --pages-per-call 4 --err-retry
 
@@ -404,12 +404,12 @@ jobs:
         working-directory: app
         run: |
           set -euo pipefail
-          echo "Run: python pdf_transcribe_gemini.py --block 08_shikoku --api-key 19-24 --pdf-source drive --limit 100 --gemini-wait 4 --pages-per-call 4 --err-retry"
+          echo "Run: python pdf_transcribe_gemini.py --block 08_shikoku --api-key 19-24 --pdf-source drive --limit 500 --gemini-wait 4 --pages-per-call 4 --err-retry"
           python pdf_transcribe_gemini.py \
             --block 08_shikoku \
             --api-key 19-24 \
             --pdf-source drive \
-            --limit 100 \
+            --limit 500 \
             --gemini-wait 4 \
             --pages-per-call 4 --err-retry
 
