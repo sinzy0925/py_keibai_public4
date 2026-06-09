@@ -1,0 +1,191 @@
+# public 鏡像用: 本体は private sinzy0925/py_keibai を checkout し、成果物は private のみに push
+name: BIT pdf transcribe gemini 4
+
+on:
+  workflow_dispatch:
+    inputs:
+      block:
+        description: ブロック
+        type: choice
+        options:
+          - 01_hokkaido
+          - 02_tohoku
+          - 03_kanto
+          - 04_hokuriku
+          - 05_tokai
+          - 06_kinki
+          - 07_chugoku
+          - 08_shikoku
+          - 09_kyushu
+        default: 04_hokuriku
+      run_mode:
+        description: "実行モード: normal=通常 / err_retry=エラーページのみ / force=全ページ再実行"
+        type: choice
+        options:
+          - normal
+          - err_retry
+          - force
+        default: normal
+      pdf_source:
+        description: PDF 取得元（drive / local / auto）
+        type: choice
+        options:
+          - drive
+          - local
+          - auto
+        default: drive
+      api_key:
+        description: 使用する GOOGLE_API_KEY の番号範囲（例 1-6, 13-18）
+        type: string
+        default: "19-24"
+      limit:
+        description: 処理する PDF 件数上限
+        type: string
+        default: "100"
+      gemini_wait:
+        description: 各 Gemini 呼び出し直前の待機（秒）
+        type: string
+        default: "4"
+      pages_per_call:
+        description: 1 回の Gemini 呼び出しで送るページ数
+        type: string
+        default: "4"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: py-keibai-private-data-push
+  cancel-in-progress: false
+
+env:
+  PRIVATE_REPO: sinzy0925/py_keibai
+  PRIVATE_REF: main
+
+jobs:
+  transcribe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout private repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PRIVATE_REPO }}
+          token: ${{ secrets.PRIVATE_REPO_PAT }}
+          ref: ${{ env.PRIVATE_REF }}
+          path: app
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: app/requirements.txt
+
+      - name: Install Python packages
+        working-directory: app
+        run: pip install -r requirements.txt
+
+      - name: Restore secrets and .env
+        working-directory: app
+        env:
+          CLIENT_SECRET_JSON: ${{ secrets.client_secret_yoshinagataroai }}
+          ENV_FILE: ${{ secrets._env }}
+          GOOGLE_DRIVE_TOKEN: ${{ secrets.google_drive_token }}
+        run: |
+          set -euo pipefail
+          mkdir -p secrets
+          if [ -z "${CLIENT_SECRET_JSON}" ]; then
+            echo "ERROR: Secret client_secret_yoshinagataroai が未設定です"
+            exit 1
+          fi
+          if [ -z "${ENV_FILE}" ]; then
+            echo "ERROR: Secret _env が未設定です"
+            exit 1
+          fi
+          if [ -z "${GOOGLE_DRIVE_TOKEN}" ]; then
+            echo "ERROR: Secret google_drive_token が未設定です"
+            exit 1
+          fi
+          printf '%s' "$CLIENT_SECRET_JSON" > secrets/client_secret_yoshinagataroai.json
+          printf '%s' "$GOOGLE_DRIVE_TOKEN" > secrets/google_drive_token.json
+          printf '%s' "$ENV_FILE" > .env
+
+      - name: Transcribe PDFs (Gemini)
+        id: transcribe
+        continue-on-error: true
+        working-directory: app
+        run: |
+          set -euo pipefail
+          ARGS=(
+            python pdf_transcribe_gemini.py
+            --block "${{ inputs.block }}"
+            --api-key "${{ inputs.api_key }}"
+            --pdf-source "${{ inputs.pdf_source }}"
+            --limit "${{ inputs.limit }}"
+            --gemini-wait "${{ inputs.gemini_wait }}"
+            --pages-per-call "${{ inputs.pages_per_call }}"
+          )
+          case "${{ inputs.run_mode }}" in
+            err_retry) ARGS+=(--err-retry) ;;
+            force) ARGS+=(--force) ;;
+            normal) ;;
+            *)
+              echo "ERROR: unknown run_mode: ${{ inputs.run_mode }}"
+              exit 1
+              ;;
+          esac
+          echo "Run: ${ARGS[*]}"
+          "${ARGS[@]}"
+
+      - name: Commit transcript JSON (private only)
+        id: commit
+        working-directory: app
+        run: |
+          set -euo pipefail
+          BLOCK="${{ inputs.block }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "data/blocks/${BLOCK}/transcripts/"
+          if git diff --staged --quiet; then
+            echo "No transcript changes to commit."
+            echo "committed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "${{ inputs.run_mode }}" = "err_retry" ]; then
+            git commit -m "chore(ci): err-retry ${BLOCK} PDF transcripts (Gemini) [skip ci]"
+          else
+            git commit -m "chore(ci): update ${BLOCK} PDF transcripts (Gemini) [skip ci]"
+          fi
+          echo "committed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Push to private with rebase
+        if: steps.commit.outputs.committed == 'true'
+        working-directory: app
+        run: |
+          set -euo pipefail
+          branch="${PRIVATE_REF}"
+          max_attempts=3
+          for attempt in $(seq 1 "$max_attempts"); do
+            git fetch origin "$branch"
+            if ! git pull --rebase origin "$branch"; then
+              git rebase --abort 2>/dev/null || true
+              echo "::error::git rebase failed on private repo. Fix conflicts on py_keibai and re-run."
+              exit 1
+            fi
+            if git push origin "HEAD:${branch}"; then
+              echo "Pushed transcripts to ${PRIVATE_REPO} (${branch})."
+              exit 0
+            fi
+            echo "Push rejected (attempt ${attempt}/${max_attempts}), retrying..."
+            sleep "$((attempt * 5))"
+          done
+          echo "::error::git push to private failed after ${max_attempts} attempts."
+          exit 1
+
+      - name: Fail job if transcribe failed
+        if: steps.transcribe.outcome == 'failure'
+        run: |
+          echo "::error::Transcribe step failed. Partial transcripts may have been committed and pushed."
+          exit 1
