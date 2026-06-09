@@ -1,4 +1,4 @@
-# public 鏡像用: ブロックを直列実行（err-retry）
+# public 鏡像用: ブロックを直列実行（err-retry（limit チェックポイント））
 name: BIT pdf transcribe gemini 4 err-retry
 
 on:
@@ -71,54 +71,57 @@ jobs:
         working-directory: app
         run: |
           set -euo pipefail
-          echo "Run: python pdf_transcribe_gemini.py --block 04_hokuriku --api-key 19-24 --pdf-source drive --limit 500 --gemini-wait 4 --pages-per-call 4 --err-retry"
-          python pdf_transcribe_gemini.py \
-            --block 04_hokuriku \
-            --api-key 19-24 \
-            --pdf-source drive \
-            --limit 500 \
-            --gemini-wait 4 \
-            --pages-per-call 4 --err-retry
-
-      - name: Commit transcript JSON (04_hokuriku)
-        id: commit
-        working-directory: app
-        run: |
-          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "data/blocks/04_hokuriku/transcripts/"
-          if git diff --staged --quiet; then
-            echo "No transcript changes to commit."
-            echo "committed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          git commit -m "chore(ci): err-retry 04_hokuriku PDF transcripts (Gemini) [skip ci]"
-          echo "committed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Push to private with rebase
-        if: steps.commit.outputs.committed == 'true'
-        working-directory: app
-        run: |
-          set -euo pipefail
-          branch="${PRIVATE_REF}"
-          max_attempts=3
-          for attempt in $(seq 1 "$max_attempts"); do
-            git fetch origin "$branch"
-            if ! git pull --rebase origin "$branch"; then
-              git rebase --abort 2>/dev/null || true
-              echo "::error::git rebase failed on private repo. Fix conflicts on py_keibai and re-run."
-              exit 1
+          push_transcripts() {
+            branch="${PRIVATE_REF}"
+            max_attempts=3
+            for attempt in $(seq 1 "$max_attempts"); do
+              git fetch origin "$branch"
+              if ! git pull --rebase origin "$branch"; then
+                git rebase --abort 2>/dev/null || true
+                echo "::error::git rebase failed on private repo. Fix conflicts on py_keibai and re-run."
+                return 1
+              fi
+              if git push origin "HEAD:${branch}"; then
+                echo "Pushed transcripts to ${PRIVATE_REPO} (${branch})."
+                return 0
+              fi
+              echo "Push rejected (attempt ${attempt}/${max_attempts}), retrying..."
+              sleep "$((attempt * 5))"
+            done
+            echo "::error::git push to private failed after ${max_attempts} attempts."
+            return 1
+          }
+
+          failed=0
+          for limit in 10 20 30 40 50 100 200; do
+            echo ""
+            echo "=== checkpoint --limit ${limit} ==="
+            echo "Run: python pdf_transcribe_gemini.py --block 04_hokuriku --api-key 19-24 --pdf-source drive --limit ${limit} --gemini-wait 4 --pages-per-call 4 --err-retry"
+            if ! python pdf_transcribe_gemini.py \
+              --block 04_hokuriku \
+              --api-key 19-24 \
+              --pdf-source drive \
+              --limit "${limit}" \
+              --gemini-wait 4 \
+              --pages-per-call 4 --err-retry; then
+              failed=1
+              echo "::warning::Transcribe failed at --limit ${limit}"
             fi
-            if git push origin "HEAD:${branch}"; then
-              echo "Pushed transcripts to ${PRIVATE_REPO} (${branch})."
-              exit 0
+
+            git add "data/blocks/04_hokuriku/transcripts/"
+            if git diff --staged --quiet; then
+              echo "No transcript changes at limit=${limit}."
+            else
+              git commit -m "chore(ci): err-retry 04_hokuriku PDF transcripts (Gemini) limit=${limit} [skip ci]"
+              if ! push_transcripts; then
+                failed=1
+              fi
             fi
-            echo "Push rejected (attempt ${attempt}/${max_attempts}), retrying..."
-            sleep "$((attempt * 5))"
           done
-          echo "::error::git push to private failed after ${max_attempts} attempts."
-          exit 1
+          exit "${failed}"
 
       - name: Fail job if transcribe failed
         if: steps.transcribe.outcome == 'failure'
@@ -182,54 +185,57 @@ jobs:
         working-directory: app
         run: |
           set -euo pipefail
-          echo "Run: python pdf_transcribe_gemini.py --block 08_shikoku --api-key 19-24 --pdf-source drive --limit 500 --gemini-wait 4 --pages-per-call 4 --err-retry"
-          python pdf_transcribe_gemini.py \
-            --block 08_shikoku \
-            --api-key 19-24 \
-            --pdf-source drive \
-            --limit 500 \
-            --gemini-wait 4 \
-            --pages-per-call 4 --err-retry
-
-      - name: Commit transcript JSON (08_shikoku)
-        id: commit
-        working-directory: app
-        run: |
-          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "data/blocks/08_shikoku/transcripts/"
-          if git diff --staged --quiet; then
-            echo "No transcript changes to commit."
-            echo "committed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          git commit -m "chore(ci): err-retry 08_shikoku PDF transcripts (Gemini) [skip ci]"
-          echo "committed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Push to private with rebase
-        if: steps.commit.outputs.committed == 'true'
-        working-directory: app
-        run: |
-          set -euo pipefail
-          branch="${PRIVATE_REF}"
-          max_attempts=3
-          for attempt in $(seq 1 "$max_attempts"); do
-            git fetch origin "$branch"
-            if ! git pull --rebase origin "$branch"; then
-              git rebase --abort 2>/dev/null || true
-              echo "::error::git rebase failed on private repo. Fix conflicts on py_keibai and re-run."
-              exit 1
+          push_transcripts() {
+            branch="${PRIVATE_REF}"
+            max_attempts=3
+            for attempt in $(seq 1 "$max_attempts"); do
+              git fetch origin "$branch"
+              if ! git pull --rebase origin "$branch"; then
+                git rebase --abort 2>/dev/null || true
+                echo "::error::git rebase failed on private repo. Fix conflicts on py_keibai and re-run."
+                return 1
+              fi
+              if git push origin "HEAD:${branch}"; then
+                echo "Pushed transcripts to ${PRIVATE_REPO} (${branch})."
+                return 0
+              fi
+              echo "Push rejected (attempt ${attempt}/${max_attempts}), retrying..."
+              sleep "$((attempt * 5))"
+            done
+            echo "::error::git push to private failed after ${max_attempts} attempts."
+            return 1
+          }
+
+          failed=0
+          for limit in 10 20 30 40 50 100 200; do
+            echo ""
+            echo "=== checkpoint --limit ${limit} ==="
+            echo "Run: python pdf_transcribe_gemini.py --block 08_shikoku --api-key 19-24 --pdf-source drive --limit ${limit} --gemini-wait 4 --pages-per-call 4 --err-retry"
+            if ! python pdf_transcribe_gemini.py \
+              --block 08_shikoku \
+              --api-key 19-24 \
+              --pdf-source drive \
+              --limit "${limit}" \
+              --gemini-wait 4 \
+              --pages-per-call 4 --err-retry; then
+              failed=1
+              echo "::warning::Transcribe failed at --limit ${limit}"
             fi
-            if git push origin "HEAD:${branch}"; then
-              echo "Pushed transcripts to ${PRIVATE_REPO} (${branch})."
-              exit 0
+
+            git add "data/blocks/08_shikoku/transcripts/"
+            if git diff --staged --quiet; then
+              echo "No transcript changes at limit=${limit}."
+            else
+              git commit -m "chore(ci): err-retry 08_shikoku PDF transcripts (Gemini) limit=${limit} [skip ci]"
+              if ! push_transcripts; then
+                failed=1
+              fi
             fi
-            echo "Push rejected (attempt ${attempt}/${max_attempts}), retrying..."
-            sleep "$((attempt * 5))"
           done
-          echo "::error::git push to private failed after ${max_attempts} attempts."
-          exit 1
+          exit "${failed}"
 
       - name: Fail job if transcribe failed
         if: steps.transcribe.outcome == 'failure'
