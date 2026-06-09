@@ -1,5 +1,5 @@
 # public 鏡像用: 本体は private sinzy0925/py_keibai を checkout し、成果物は private のみに push
-name: BIT pdf transcribe gemini 4
+name: BIT pdf transcribe gemini (manual)
 
 on:
   workflow_dispatch:
